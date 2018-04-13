@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.1//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_2.dtd'>
+<nta>
+	<declaration>// mote parameters
+//----------------------------------------------------
+const int M = 5;
+typedef int[1,M] mote_id_t;
+const mote_id_t M1 = 1;
+const mote_id_t M2 = 2;
+const mote_id_t M3 = 3;
+const mote_id_t M4 = 4;
+const mote_id_t M5 = 5;
+const int GATEWAY = 6;
+
+// power parameters
+//----------------------------------------------------
+const int POWER_SETTING_LOW = 5;
+const int POWER_SETTING_HIGH = 10;
+const int POWER_SETTING = POWER_SETTING_LOW;
+const int POWER_SETTING_Z = POWER_SETTING == 5 ? 261 : 324;
+
+
+// link parameters
+//----------------------------------------------------
+const int LINKS = 6;
+
+// SNR for low and high power settings
+const int SNR_LOW[LINKS] = {-1,0,2,2,-2,4};
+const int SNR_HIGH[LINKS] = {8,5,4,5,6,6};
+
+// Available Distribution settings for mote4 
+// DIST_0_100 = 1 ==&gt; m4 -&gt; m3 0% messages &amp; m4 -&gt; m5 100% of messages
+const int DIST_0_100=1; 
+// similarly for others
+// 50-50% messages to both m3 and m5
+const int DIST_50_50=2; 
+// DIST_100_0 = 3 ==&gt; m4 -&gt; m3 100% messages &amp; m4 -&gt; m5 0% of messages
+const int DIST_100_0=3;
+
+// mote configuration
+typedef struct{
+    int DistributionSetting;
+    int Receivers[2];
+    int GeneratedPackets;
+}MoteConfiguration;
+
+// link
+typedef struct{
+    int source;
+    int destination;
+    int linkBuffer;
+    int SNR;
+}Link;
+
+// results
+typedef struct{
+    int totalTxPackets;
+    int totalLostPackets;
+    int energyConsumption;
+    int packetLoss;
+}SimResult;
+
+// mote configuration data
+MoteConfiguration moteConfig[M] = {
+    {DIST_0_100, {M2,-1},      2}, // mote 1
+    {DIST_0_100, {M3,-1},      0}, // mote 2
+    {DIST_0_100, {GATEWAY,-1}, 3}, // mote 3
+    {DIST_100_0, {M3,M5},      6}, // mote 4
+    {DIST_0_100, {GATEWAY,-1}, 7}  // mote 5
+};
+
+// topology configuration
+Link links[LINKS] = {
+    {M1,M2,0,POWER_SETTING == 5 ? SNR_LOW[0] : SNR_HIGH[0]},
+    {M2,M3,0,POWER_SETTING == 5 ? SNR_LOW[1] : SNR_HIGH[1]},
+    {M4,M3,0,POWER_SETTING == 5 ? SNR_LOW[2] : SNR_HIGH[2]},
+    {M4,M5,0,POWER_SETTING == 5 ? SNR_LOW[3] : SNR_HIGH[3]},
+    {M3,GATEWAY,0,POWER_SETTING == 5 ? SNR_LOW[4] : SNR_HIGH[4]},
+    {M5,GATEWAY,0,POWER_SETTING == 5 ? SNR_LOW[5] : SNR_HIGH[5]}
+};
+
+const int SEND_ORDER[M] = {M1,M2,M4,M3,M5};
+
+const int S = 8; /* number of time slots */
+const int B = 10; /* max packet buffer */
+const int T = B; /* max packets per tx */
+
+const int MAX_ROUNDS = 10;
+const int STARTING_MOTE_ID = M1; 
+
+const int MAX_PACKET_RECEIVED = 10;
+const int SLOT_TIME = 2;
+const double LISTENING_FACTOR = 14.2;
+const double RECEIVE_ENERGY = MAX_PACKET_RECEIVED * SLOT_TIME * LISTENING_FACTOR;
+
+clock x;
+broadcast chan turn[M+2];
+broadcast chan txrx[M+2];
+broadcast chan turnDone;
+
+SimResult simulationResult = {0,0,0,0};
+
+
+</declaration>
+	<template>
+		<name>QM_Gateway</name>
+		<declaration>void receivePackets()
+{
+    int lostPackets=0;
+    int i=0;
+    while(i&lt;LINKS){
+        if(links[i].destination == GATEWAY) 
+        {
+            // update statistics
+            simulationResult.totalTxPackets += links[i].linkBuffer;
+            
+            // check for packet loss
+            if(links[i].SNR &lt; 0) 
+            {
+                lostPackets = (links[i].linkBuffer * (-1*links[i].SNR))/20;
+                links[i].linkBuffer -= lostPackets;
+                simulationResult.totalLostPackets += lostPackets;
+            }
+
+            // clear link buffer
+            links[i].linkBuffer = 0;
+        }
+        i++;
+    }
+}</declaration>
+		<location id="id0" x="153" y="-59">
+			<committed/>
+		</location>
+		<location id="id1" x="-170" y="-59">
+			<name x="-153" y="-67">receive</name>
+			<committed/>
+		</location>
+		<location id="id2" x="0" y="-59">
+			<name x="-17" y="-42">rxReady</name>
+		</location>
+		<init ref="id2"/>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id0"/>
+			<label kind="synchronisation" x="51" y="-110">turn[6]?</label>
+			<nail x="17" y="-93"/>
+			<nail x="127" y="-93"/>
+		</transition>
+		<transition>
+			<source ref="id0"/>
+			<target ref="id2"/>
+			<label kind="synchronisation" x="51" y="-42">turnDone!</label>
+			<nail x="136" y="-25"/>
+			<nail x="34" y="-25"/>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id2"/>
+			<label kind="assignment" x="-136" y="-17">receivePackets()</label>
+			<nail x="-136" y="-25"/>
+			<nail x="-34" y="-25"/>
+		</transition>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id1"/>
+			<label kind="synchronisation" x="-102" y="-118">txrx[6]?</label>
+			<nail x="-25" y="-93"/>
+			<nail x="-136" y="-93"/>
+		</transition>
+	</template>
+	<template>
+		<name x="5" y="5">QM_System</name>
+		<declaration>mote_id_t curMoteId = STARTING_MOTE_ID;
+int[0,M-1] sendOrderIndex = 0;
+int[0,MAX_ROUNDS] curRound = 0;
+double totalEnergy = 0.0;
+
+int castDoubleToInt(double value){
+	double n=value;
+    int res=0;
+
+    n = floor(n);
+    while(n &gt; 0.0) {
+        n = n - 1.0;
+        res++;
+    }
+
+	return res;
+}
+
+void calcStatistics()
+{
+    totalEnergy = simulationResult.totalTxPackets * 1.158 * (POWER_SETTING_Z/10.0);
+    totalEnergy = totalEnergy + (MAX_ROUNDS * 4 * RECEIVE_ENERGY);
+    simulationResult.energyConsumption = castDoubleToInt(totalEnergy);
+    simulationResult.packetLoss = (simulationResult.totalLostPackets * 100) / simulationResult.totalTxPackets;
+}
+
+int nextMoteId()
+{
+    curMoteId = SEND_ORDER[sendOrderIndex];
+    if((sendOrderIndex + 1) == M)
+    {
+        sendOrderIndex = 0;
+        curRound++;
+    }
+    else
+        sendOrderIndex++;
+
+    return curMoteId;
+}
+</declaration>
+		<location id="id3" x="-748" y="-221">
+			<name x="-758" y="-255">end</name>
+		</location>
+		<location id="id4" x="-408" y="-25">
+			<name x="-391" y="-33">turnState</name>
+		</location>
+		<location id="id5" x="-518" y="-68">
+			<name x="-544" y="-59">prepTurn</name>
+			<committed/>
+		</location>
+		<location id="id6" x="-680" y="-34">
+			<label kind="invariant" x="-722" y="-17">x &lt;= 1</label>
+		</location>
+		<init ref="id6"/>
+		<transition>
+			<source ref="id6"/>
+			<target ref="id3"/>
+			<label kind="guard" x="-943" y="-144">curRound &gt;= MAX_ROUNDS</label>
+			<label kind="assignment" x="-867" y="-127">calcStatistics()</label>
+			<nail x="-748" y="-59"/>
+			<nail x="-748" y="-195"/>
+		</transition>
+		<transition>
+			<source ref="id4"/>
+			<target ref="id6"/>
+			<label kind="synchronisation" x="-561" y="0">turnDone?</label>
+			<label kind="assignment" x="-552" y="17">x := 0</label>
+			<nail x="-408" y="17"/>
+			<nail x="-680" y="17"/>
+		</transition>
+		<transition>
+			<source ref="id5"/>
+			<target ref="id4"/>
+			<label kind="synchronisation" x="-476" y="-93">turn[curMoteId]!</label>
+			<nail x="-476" y="-68"/>
+			<nail x="-408" y="-68"/>
+		</transition>
+		<transition>
+			<source ref="id6"/>
+			<target ref="id5"/>
+			<label kind="guard" x="-705" y="-110">curRound &lt; MAX_ROUNDS</label>
+			<label kind="assignment" x="-697" y="-93">curMoteId := nextMoteId()</label>
+			<nail x="-680" y="-68"/>
+			<nail x="-544" y="-68"/>
+		</transition>
+	</template>
+	<template>
+		<name>QM_Mote</name>
+		<parameter>const mote_id_t id</parameter>
+		<declaration>int[0,B] rxPackets = 0;
+int[0,2] sendCycle = 0;
+int[0,T] txPackets = 0;
+
+int index = 0;
+int rxId = M1;
+
+int sendCycles = 0;
+int sendCycleCnt = 0;
+int receiverIndex = 0;
+int currentLink = -1;
+
+void genTxPackets()
+{
+    txPackets = moteConfig[id-1].GeneratedPackets;
+
+    if((txPackets + rxPackets) &gt; T)
+    {
+        simulationResult.totalLostPackets += ((txPackets + rxPackets) - T);
+        txPackets = T;
+    }
+    else 
+        txPackets = (txPackets + rxPackets);
+    rxPackets = 0;                         // empty forwarding queue
+}
+
+void sendPackets()
+{
+    if(moteConfig[id-1].DistributionSetting == DIST_50_50 &amp;&amp; sendCycleCnt &lt; 1) 
+    {
+        // send first half
+        links[currentLink].linkBuffer = txPackets/2;
+        txPackets -= (txPackets/2);
+    }
+    else // DIST_100_0 || DIST_100_0 || send 2nd half of DIST_50_50
+    {
+        links[currentLink].linkBuffer = txPackets;
+        txPackets = 0;
+    }
+
+    sendCycleCnt++;
+}
+
+void receivePackets()
+{
+    int lostPackets=0;
+    int i=0;
+    while(i&lt;LINKS){
+        if(links[i].destination == id) 
+        {
+            // update statistics
+            simulationResult.totalTxPackets += links[i].linkBuffer;
+            
+            // check for packet loss
+            if(links[i].SNR &lt; 0) 
+            {
+                lostPackets = (links[i].linkBuffer * (-1*links[i].SNR))/20;
+                links[i].linkBuffer -= lostPackets;
+                simulationResult.totalLostPackets += lostPackets;
+            }
+
+            // add incoming packets to receive buffer
+            if((rxPackets + links[i].linkBuffer) &gt; B)
+            {
+                simulationResult.totalLostPackets += (rxPackets + links[i].linkBuffer)-B;
+                rxPackets = B;
+            }
+            else
+                rxPackets += links[i].linkBuffer;
+            
+            // clear link buffer
+            links[i].linkBuffer = 0;
+        }
+        i++;
+    }
+}
+
+void getNextReceiver()
+{
+    int i=0;
+    currentLink = -1;
+    while(i&lt;LINKS){
+        if(links[i].source == id &amp;&amp; links[i].destination == moteConfig[id-1].Receivers[receiverIndex]) {
+            currentLink = i;
+            rxId = links[i].destination;
+        }
+        i++;
+    }
+}
+
+void updateSendCycleCounter()
+{
+    sendCycleCnt++;
+    receiverIndex++;
+}
+
+void prepareSend()
+{
+    if(moteConfig[id-1].DistributionSetting == DIST_50_50) 
+    {
+        sendCycleCnt = 0;
+        sendCycles = 2;
+        receiverIndex = 0;
+    }
+    else if(moteConfig[id-1].DistributionSetting == DIST_100_0)
+    {
+        sendCycleCnt = 0;
+        sendCycles = 1;
+        receiverIndex = 1;
+    }
+    else // DIST_100_0
+    {
+        sendCycleCnt = 0;
+        sendCycles = 1;
+        receiverIndex = 0;
+    }
+}</declaration>
+		<location id="id7" x="-246" y="93">
+			<committed/>
+		</location>
+		<location id="id8" x="8" y="76">
+			<name x="-43" y="68">send</name>
+			<urgent/>
+		</location>
+		<location id="id9" x="8" y="-17">
+			<name x="-34" y="-51">selectReceiver</name>
+			<urgent/>
+		</location>
+		<location id="id10" x="-416" y="195">
+			<name x="-399" y="187">receive</name>
+			<committed/>
+		</location>
+		<location id="id11" x="8" y="195">
+			<name x="-35" y="212">nextReceiver</name>
+			<committed/>
+		</location>
+		<location id="id12" x="-246" y="-17">
+			<name x="-280" y="-51">fillTXBuffer</name>
+			<committed/>
+		</location>
+		<location id="id13" x="-246" y="195">
+			<name x="-263" y="212">rxReady</name>
+		</location>
+		<init ref="id13"/>
+		<transition>
+			<source ref="id7"/>
+			<target ref="id12"/>
+			<label kind="assignment" x="-238" y="42">genTxPackets()</label>
+		</transition>
+		<transition>
+			<source ref="id9"/>
+			<target ref="id8"/>
+			<label kind="assignment" x="17" y="17">getNextReceiver()</label>
+		</transition>
+		<transition>
+			<source ref="id13"/>
+			<target ref="id7"/>
+			<label kind="synchronisation" x="-238" y="136">turn[id]?</label>
+		</transition>
+		<transition>
+			<source ref="id12"/>
+			<target ref="id9"/>
+			<label kind="assignment" x="-170" y="-42">prepareSend()</label>
+		</transition>
+		<transition>
+			<source ref="id11"/>
+			<target ref="id9"/>
+			<label kind="guard" x="204" y="51">sendCycleCnt &lt; sendCycles</label>
+			<label kind="assignment" x="204" y="68">updateSendCycleCounter()</label>
+			<nail x="196" y="195"/>
+			<nail x="196" y="-17"/>
+		</transition>
+		<transition>
+			<source ref="id8"/>
+			<target ref="id11"/>
+			<label kind="synchronisation" x="17" y="127">txrx[rxId]!</label>
+			<label kind="assignment" x="17" y="110">sendPackets()</label>
+		</transition>
+		<transition>
+			<source ref="id11"/>
+			<target ref="id13"/>
+			<label kind="guard" x="-204" y="170">sendCycleCnt &gt;= sendCycles</label>
+			<label kind="synchronisation" x="-161" y="195">turnDone!</label>
+			<nail x="-212" y="195"/>
+		</transition>
+		<transition>
+			<source ref="id10"/>
+			<target ref="id13"/>
+			<label kind="assignment" x="-382" y="238">receivePackets()</label>
+			<nail x="-382" y="229"/>
+			<nail x="-280" y="229"/>
+		</transition>
+		<transition>
+			<source ref="id13"/>
+			<target ref="id10"/>
+			<label kind="synchronisation" x="-348" y="136">txrx[id]?</label>
+			<nail x="-271" y="161"/>
+			<nail x="-382" y="161"/>
+		</transition>
+	</template>
+	<system>system QM_Mote, QM_Gateway, QM_System;   </system>
+	<queries>
+		<query>
+			<formula>simulate 5 [&lt;=40] {simulationResult.totalLostPackets}
+			</formula>
+			<comment>
+			</comment>
+		</query>
+		<query>
+			<formula>simulate 5 [&lt;=40] {simulationResult.totalTxPackets}
+			</formula>
+			<comment>
+			</comment>
+		</query>
+		<query>
+			<formula>simulate 5 [&lt;=40] {simulationResult.packetLoss}
+			</formula>
+			<comment>
+			</comment>
+		</query>
+		<query>
+			<formula>simulate 5 [&lt;=40] {simulationResult.energyConsumption}
+			</formula>
+			<comment>
+			</comment>
+		</query>
+		<query>
+			<formula>A[] not deadlock
+			</formula>
+			<comment>
+			</comment>
+		</query>
+	</queries>
+</nta>
